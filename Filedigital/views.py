@@ -127,3 +127,5 @@ class FileApprovalViewSet(viewsets.ModelViewSet):
 class FileActivityLogViewSet(viewsets.ModelViewSet):
     queryset = FileActivityLog.objects.all()
     serializer_class = FileActivityLogSerializer
+
+
