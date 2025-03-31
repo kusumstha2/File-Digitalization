@@ -7,9 +7,9 @@ from .models import User
 
 class CustomUserAdmin(UserAdmin):
     model = User
-    list_display = ('username', 'email', 'is_staff', 'is_active')
+    list_display = ('name', 'email', 'is_staff', 'is_active')
     list_filter = ('is_staff', 'is_active')
-    search_fields = ('username', 'email')
-    ordering = ('username',)
+    search_fields = ('name', 'email')
+    ordering = ('name',)
 
 admin.site.register(User, CustomUserAdmin)
