@@ -15,13 +15,30 @@ class File(models.Model):
         ('public', 'Public')
     ]
 
-    file = models.FileField(upload_to='documents/')
-    name = models.CharField(max_length=255)
+    file = models.FileField(upload_to='documents/', unique=True)
+    name = models.CharField(max_length=255, unique=True)
     added_date = models.DateTimeField(auto_now_add=True)
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
     file_type = models.CharField(max_length=10, choices=FILE_TYPES, default='private')
     is_approved = models.BooleanField(default=False)
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,related_name='upload')
+
+    def __str__(self):
+        return self.name
+    
+class Backup(models.Model):
+    FILE_TYPES = [
+        ('private', 'Private'),
+        ('public', 'Public')
+    ]
+
+    file = models.FileField(upload_to='backup_documents/')
+    name = models.CharField(max_length=255)
+    added_date = models.DateTimeField(auto_now_add=True)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    file_type = models.CharField(max_length=10, choices=FILE_TYPES, default='private')
+    is_approved = models.BooleanField(default=False)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,related_name='backup_upload')
 
     def __str__(self):
         return self.name

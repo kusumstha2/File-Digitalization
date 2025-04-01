@@ -12,4 +12,5 @@ router.register('fileactivity', FileActivityLogViewSet)
 
 urlpatterns = [
     path('api/', include(router.urls)),
+    path('api/files/<int:pk>/restore/', FileViewSet.as_view({'post': 'restore'}), name='file-restore'),
 ]
