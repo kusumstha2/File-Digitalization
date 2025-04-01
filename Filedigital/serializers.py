@@ -4,7 +4,7 @@ from .models import File, Category, FileApproval, OCRData, FileActivityLog
 class FileSerializer(serializers.ModelSerializer):
     class Meta:
         model = File
-        fields = '__all__'
+        exclude = ['uploaded_by']
 
 
 
