@@ -26,7 +26,7 @@ class UserManager(BaseUserManager):
 
 # Create your models here.
 class User(AbstractUser):
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=255, null=True, blank=True)
     phone = models.CharField(
         max_length=10,
         validators=[phone_validator],
@@ -35,7 +35,8 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
     location = models.CharField(max_length=255)
     role = models.ManyToManyField(Group, related_name="user_role", blank=True)
-
+    
+   
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
     objects = UserManager()

@@ -114,6 +114,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
 
+
 class FileApprovalViewSet(viewsets.ModelViewSet):
     queryset = FileApproval.objects.all()
     serializer_class = FileApprovalSerializer
@@ -127,5 +128,3 @@ class FileApprovalViewSet(viewsets.ModelViewSet):
 class FileActivityLogViewSet(viewsets.ModelViewSet):
     queryset = FileActivityLog.objects.all()
     serializer_class = FileActivityLogSerializer
-
-

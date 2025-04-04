@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Messaging Demo</title>
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
+        import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-messaging.js";
+
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "{{apiKey}}",
+            authDomain: "{{authDomain}}",
+            projectId: "{{projectId}}",
+            databaseURL: "{{databaseURL}}",
+            storageBucket: "{{storageBucket}}",
+            messagingSenderId: "{{messagingSenderId}}",
+            appId: "{{appId}}",
+            measurementId: "{{measurementId}}"
+        };
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const messaging = getMessaging(app);
+
+        // Register the Service Worker
+     
+
+        // Handle the button click to request permission for notifications
+        document.getElementById('request-permission').addEventListener('click', () => {
+            Notification.requestPermission()
+            .then((permission) =>{
+                if(permission === "granted"){
+                    console.log("Notificatioin permission granted.");
+                    getToken(messaging, {vapidKey: 'BK5XTUQhh8AUKpqfp2tUthuXmsqZOzgbYIESj79zO06x_LiHV4Ksrq0l9MzC-zNfNwrytTGFJSpRK9A8Rd5BbyE'})
+                    .then((currentToken)=> {
+                    if(currentToken){
+                        console.log("FCM Token: ", currentToken);
+                        fetch('save-token/', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ token: currentToken }),
+                        });
+                    }else{
+                        console.log("No registration token available. Request permission to generate one.");
+                    }
+                })
+                }
+            })
+            .catch((err) => {
+                console.log("Error requesting notification permission:", err);
+            });
+        });
+
+        // Handle incoming messages
+        onMessage(messaging, (payload) => {
+            console.log("Message received: ", payload);
+            // Customize the display of incoming notifications here
+            const notificationTitle = payload.notification.title;
+            const notificationOptions = {
+                body: payload.notification.body,
+                icon: payload.notification.icon,
+            };
+            new Notification(notificationTitle, notificationOptions);
+        });
+    </script>
+</head>
+<body>
+    <h1>Firebase Cloud Messaging Demo</h1>
+    <button id="request-permission">Enable Notifications</button>
+    <p>Click the button to enable notifications.</p>
+</body>
+</html>
