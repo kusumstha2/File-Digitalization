@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import File, Category, FileApproval, OCRData, FileActivityLog
+from .models import File, Category, FileApproval, OCRData, FileActivityLog,Notification
 
 class FileSerializer(serializers.ModelSerializer):
     class Meta:
@@ -28,4 +28,9 @@ class OCRDataSerializer(serializers.ModelSerializer):
 class FileActivityLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = FileActivityLog
+        fields = '__all__'
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
         fields = '__all__'

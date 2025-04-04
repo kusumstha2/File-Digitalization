@@ -51,7 +51,10 @@ INSTALLED_APPS = [
     "users",
     "rest_framework.authtoken",
     "djoser",
+    "firebase_app",
 ]
+
+FIREBASE_CONFIG = os.getenv('FIREBASE_CONFIG')
 
 AUTH_USER_MODEL = 'users.User'
 
@@ -141,6 +144,8 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+STATIC_URL = '/static/'
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
