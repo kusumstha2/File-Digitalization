@@ -10,6 +10,15 @@ from rest_framework.response import Response
 from rest_framework import status
 from .permissions import *
 
+from datetime import timedelta
+from django.utils import timezone
+from celery import shared_task
+from django.utils.timezone import now
+# import random
+from django.core.mail import send_mail
+from django.conf import settings
+from users.models import User
+
 
 class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
@@ -18,6 +27,14 @@ class FileViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         user = self.request.user  # Get the authenticated user
         file_instance = serializer.save(uploaded_by=user)  # Save the File instance
+        
+         # Log file upload activity
+        FileActivityLog.objects.create(
+            file=file_instance,
+            user=user,
+            action='upload',
+            notes='File uploaded via API'
+        )
 
         # Also create a Backup instance
         Backup.objects.create(
@@ -77,8 +94,68 @@ class CategoryViewSet(viewsets.ModelViewSet):
 class FileApprovalViewSet(viewsets.ModelViewSet):
     queryset = FileApproval.objects.all()
     serializer_class = FileApprovalSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def perform_create(self, serializer):
+        approval = serializer.save()
 
+        # Update File's is_approved based on status
+        if approval.status == 'approved':
+            approval.file.is_approved = True
+        else:
+            approval.file.is_approved = False
+        approval.file.save()
 
+        # Set decision_date if status is not pending
+        if approval.status != 'pending':
+            approval.decision_date = now()
+            approval.save()
+
+        # Log activity
+        FileActivityLog.objects.create(
+            file=approval.file,
+            user=approval.approver,
+            action=approval.status,
+            notes=approval.notes
+        )
+        
+        # # ✅ Notify approver via email when approval is pending
+        # if approval.status == 'pending' and approval.approver.email:
+        #     send_mail(
+        #         subject='New File Pending Approval',
+        #         message=f'Dear {approval.approver.get_full_name()},\n\n'
+        #                 f'A file "{approval.file.name}" has been submitted and requires your approval.\n\n'
+        #                 f'Please log in to the system to review it.\n\nThank you.',
+        #         from_email=settings.EMAIL_HOST_USER,
+        #         recipient_list=[approval.approver.email],
+        #         fail_silently=True
+        #     )
+        
+        # Escalation setup after 24 hours
+        if approval.status == 'pending':
+            escalate_pending_approval.apply_async((approval.id,), eta=now() + timedelta(hours=24))
+        
+@shared_task
+def escalate_pending_approval(approval_id):
+    from .models import FileApproval
+    try:
+        approval = FileApproval.objects.get(id=approval_id)
+        if approval.status == 'pending':
+            # Escalate logic (e.g., notify admin or higher authority)
+            # Here we just print/log; you can notify via email, update approver, etc.
+            print(f"Approval {approval_id} is still pending. Escalating...")
+
+            # Optional: send email to admin
+            send_mail(
+                subject='Approval Escalation Alert',
+                message=f'File "{approval.file.name}" is still pending approval after 24 hours.',
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=['krijalsuwal67@gmail.com'],  # replace with actual higher authority
+                fail_silently=True
+            )
+    except FileApproval.DoesNotExist:
+        pass
+    
 
 class OCRDataViewSet(viewsets.ModelViewSet):
     queryset = OCRData.objects.all()

@@ -158,3 +158,13 @@ DJOSER = {
         "current_user": "users.serializers.CustomUserCreateSerializer",
     },
 }
+
+# EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+# EMAIL_HOST = 'smtp.yourhost.com'
+# EMAIL_PORT = 587
+# EMAIL_USE_TLS = True
+# EMAIL_HOST_USER = 'krijalsuwal67@gmail.com'
+# EMAIL_HOST_PASSWORD = 'ftyi jfpe fdak pdcc'
+# DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+
