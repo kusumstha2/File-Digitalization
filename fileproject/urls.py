@@ -24,7 +24,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path('',include('Filedigital.urls')),
     path('user/',include('users.urls')),
-    path('notify/',include('firebase_app.urls')),
+    path('',include('firebase_app.urls')),
     
     #Djoser urls
     path("auth/", include("djoser.urls")),  # Registration, password reset, etc.
