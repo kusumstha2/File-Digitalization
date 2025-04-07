@@ -79,3 +79,4 @@ def showFirebaseJS(request):
     """
 
     return HttpResponse(data,content_type="text/javascript")
+
