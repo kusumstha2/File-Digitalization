@@ -45,6 +45,30 @@ class FileViewSet(viewsets.ModelViewSet):
             is_approved=file_instance.is_approved,
             uploaded_by=user  # Set uploaded_by to the same user
         )
+        # 🔥 Auto-create a FileApproval and send mail manually
+        approver = User.objects.filter(is_staff=True).exclude(id=user.id).first()
+        if approver:
+            approval = FileApproval.objects.create(
+                file=file_instance,
+                approver=approver,
+                status='pending'
+            )
+        
+        # ✅ Manually send the email (since perform_create of FileApprovalViewSet isn't triggered)
+        if approver.email:
+            send_mail(
+                subject='New File Pending Approval',
+                message=f'Dear {approver.get_full_name()},\n\n'
+                        f'A file "{file_instance.name}" has been submitted and requires your approval.\n\n'
+                        f'Please log in to the system to review it.\n\nThank you.',
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=[approver.email],
+                fail_silently=True
+            )
+
+        # ✅ Schedule escalation
+        escalate_pending_approval.apply_async((approval.id,), eta=now() + timedelta(hours=24))
+    
     @action(detail=True, methods=['POST'], permission_classes=[IsOwnerOrAdmin])
     def restore(self, request, pk=None):
         try:
@@ -118,18 +142,32 @@ class FileApprovalViewSet(viewsets.ModelViewSet):
             action=approval.status,
             notes=approval.notes
         )
-        
-        # # ✅ Notify approver via email when approval is pending
-        # if approval.status == 'pending' and approval.approver.email:
-        #     send_mail(
-        #         subject='New File Pending Approval',
-        #         message=f'Dear {approval.approver.get_full_name()},\n\n'
-        #                 f'A file "{approval.file.name}" has been submitted and requires your approval.\n\n'
-        #                 f'Please log in to the system to review it.\n\nThank you.',
-        #         from_email=settings.EMAIL_HOST_USER,
-        #         recipient_list=[approval.approver.email],
-        #         fail_silently=True
-        #     )
+            
+        # ✅ Notify uploader if file is approved
+        if approval.status == 'approved' and approval.file.uploaded_by.email:
+            send_mail(
+                subject='Your File Has Been Approved',
+                message=f'Dear {approval.file.uploaded_by.get_full_name()},\n\n'
+                        f'Your file "{approval.file.name}" has been approved by {approval.approver.get_full_name()}.\n\n'
+                        f'Thank you for using our service!',
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=[approval.file.uploaded_by.email],
+                fail_silently=True
+            )
+            
+        # ✅ Notify uploader if file is rejected
+        if approval.status == 'rejected' and approval.file.uploaded_by.email:
+            send_mail(
+                subject='Your File Has Been Rejected',
+                message=f'Dear,\n\n'
+                        f'We regret to inform you that your file "{approval.file.name}" has been rejected.\n\n'
+                        f'Please review the feedback from the approver and make necessary changes.\n\n'
+                        f'Thank you for using our service!',
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=[approval.file.uploaded_by.email],
+                fail_silently=True
+            )
+
         
         # Escalation setup after 24 hours
         if approval.status == 'pending':
@@ -150,7 +188,7 @@ def escalate_pending_approval(approval_id):
                 subject='Approval Escalation Alert',
                 message=f'File "{approval.file.name}" is still pending approval after 24 hours.',
                 from_email=settings.EMAIL_HOST_USER,
-                recipient_list=['krijalsuwal67@gmail.com'],  # replace with actual higher authority
+                recipient_list=[settings.EMAIL_HOST_USER],  # replace with actual higher authority
                 fail_silently=True
             )
     except FileApproval.DoesNotExist:
