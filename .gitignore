@@ -11,7 +11,7 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 media
-firebase_key.json
+
 
 .dist
 # If your build process includes running collectstatic, then you probably don't need or want to include staticfiles/
@@ -174,4 +174,4 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# End of https://www.toptal.com/developers/gitignore/api/django
+# End of https://www.toptal.com/developers/gitignore/api/django"firebase_key.json" 
