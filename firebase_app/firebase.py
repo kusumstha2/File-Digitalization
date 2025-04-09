@@ -10,7 +10,7 @@ load_dotenv()
 
 def generate_firebase_auth_key():
     scopes = ['https://www.googleapis.com/auth/firebase.messaging']
-    credentials_path = json.loads(os.getenv('GOOGLE_CREDENTIALS_JSON'))
+    credentials_path = json.loads(os.getenv('FIREBASE_CREDENTIAL_PATH'))
    # points to firebase_key.json
 
     credentials = service_account.Credentials.from_service_account_info(
