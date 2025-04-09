@@ -1,6 +1,7 @@
 from django.shortcuts import render
-
-# Create your views here.
+import pytesseract
+from PIL import Image
+from pdf2image import convert_from_path
 from rest_framework import viewsets
 from .models import File, Category, FileApproval, OCRData, FileActivityLog, Backup
 from .serializers import (FileSerializer,CategorySerializer,FileApprovalSerializer,  OCRDataSerializer, FileActivityLogSerializer)
@@ -9,6 +10,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 from .permissions import *
+import logging
+
+logger = logging.getLogger(__name__)
 
 from datetime import timedelta
 from django.utils import timezone
@@ -19,14 +23,17 @@ from django.core.mail import send_mail
 from django.conf import settings
 from users.models import User
 
+import cv2
+import numpy as np
 
 class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
     serializer_class = FileSerializer
-    permission_classes = [IsOwnerOrAdmin]
+    permission_classes = [IsAuthenticated]
+
     def perform_create(self, serializer):
-        user = self.request.user  # Get the authenticated user
-        file_instance = serializer.save(uploaded_by=user)  # Save the File instance
+        user = self.request.user  
+        file_instance = serializer.save(uploaded_by=user)  
         
          # Log file upload activity
         FileActivityLog.objects.create(
@@ -36,15 +43,48 @@ class FileViewSet(viewsets.ModelViewSet):
             notes='File uploaded via API'
         )
 
-        # Also create a Backup instance
+        # ✅ Create Backup
         Backup.objects.create(
-            file=file_instance.file,  # Copy file field
+            file=file_instance.file,
             name=file_instance.name,
             category=file_instance.category,
             file_type=file_instance.file_type,
             is_approved=file_instance.is_approved,
-            uploaded_by=user  # Set uploaded_by to the same user
+            uploaded_by=user
         )
+
+        # ✅ Perform OCR on images and PDFs with enhancement
+        file_path = file_instance.file.path
+        extracted_text = ""
+
+        try:
+            if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
+                image = cv2.imread(file_path)
+                image = self.preprocess_image(image)
+                extracted_text = pytesseract.image_to_string(image)
+
+            elif file_path.lower().endswith('.pdf'):
+                images = convert_from_path(file_path)
+                for image in images:
+                    image = np.array(image)
+                    image = self.preprocess_image(image)
+                    extracted_text += pytesseract.image_to_string(image) + "\n"
+
+            if extracted_text:
+                OCRData.objects.create(file=file_instance, extracted_text=extracted_text)
+                logger.info(f"OCRData successfully created for file: {file_instance.name}")
+            else:
+                logger.warning(f"OCRData extraction failed: No text found in {file_instance.name}")
+
+        except Exception as e:
+            logger.error(f"OCR Extraction Error: {e}")
+
+    def preprocess_image(self, image):
+        """Enhances the image before OCR."""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        return thresh
+
         # 🔥 Auto-create a FileApproval and send mail manually
         approver = User.objects.filter(is_staff=True).exclude(id=user.id).first()
         if approver:
@@ -71,26 +111,18 @@ class FileViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['POST'], permission_classes=[IsOwnerOrAdmin])
     def restore(self, request, pk=None):
+        """Restores a file from backup"""
         try:
-            # Fetch the backup entry based on file_id
             backup_instance = Backup.objects.get(pk=pk)
-            
-            #Explicitly check if the request user is either the owner or an admin
 
-            if not (request.user.is_staff or backup_instance.uploaded_by == request.user):
-                return Response(
-                    {"error": "You do not have permission to restore this file."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-                
-            # ✅ Prevent restoring if file already exists
+            # Prevent restoring if the file already exists
             if File.objects.filter(file=backup_instance.file, uploaded_by=backup_instance.uploaded_by).exists():
                 return Response(
                     {"error": "This file has already been restored."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-                
-            # Restore the file by recreating a File instance
+
+            # Restore the file
             restored_file = File.objects.create(
                 file=backup_instance.file,
                 name=backup_instance.name,
@@ -109,11 +141,20 @@ class FileViewSet(viewsets.ModelViewSet):
         except Backup.DoesNotExist:
             return Response({"error": "Backup file not found"}, status=status.HTTP_404_NOT_FOUND)
 
+    @action(detail=True, methods=['GET'], permission_classes=[IsOwnerOrAdmin])
+    def get_ocr_text(self, request, pk=None):
+        """API endpoint to retrieve OCR text for a file"""
+        try:
+            ocr_data = OCRData.objects.get(file_id=pk)
+            return Response({"file_id": pk, "extracted_text": ocr_data.extracted_text})
+        except OCRData.DoesNotExist:
+            return Response({"error": "No OCR data found for this file"}, status=status.HTTP_404_NOT_FOUND)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+
 
 class FileApprovalViewSet(viewsets.ModelViewSet):
     queryset = FileApproval.objects.all()
@@ -195,9 +236,9 @@ def escalate_pending_approval(approval_id):
         pass
     
 
-class OCRDataViewSet(viewsets.ModelViewSet):
-    queryset = OCRData.objects.all()
-    serializer_class = OCRDataSerializer
+# class OCRDataViewSet(viewsets.ModelViewSet):
+#     queryset = OCRData.objects.all()
+#     serializer_class = OCRDataSerializer
 
 class FileActivityLogViewSet(viewsets.ModelViewSet):
     queryset = FileActivityLog.objects.all()
