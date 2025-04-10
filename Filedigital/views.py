@@ -52,7 +52,29 @@ class FileViewSet(viewsets.ModelViewSet):
             is_approved=file_instance.is_approved,
             uploaded_by=user
         )
+       # 🔥 Auto-create a FileApproval and send mail manually
+        approver = User.objects.filter(is_staff=True).exclude(id=user.id).first()
+        if approver:
+            approval = FileApproval.objects.create(
+                file=file_instance,
+                approver=approver,
+                status='pending'
+            )
+        
+        # ✅ Manually send the email (since perform_create of FileApprovalViewSet isn't triggered)
+        if approver.email:
+            send_mail(
+                subject='New File Pending Approval',
+                message=f'Dear {approver.get_full_name()},\n\n'
+                        f'A file "{file_instance.name}" has been submitted and requires your approval.\n\n'
+                        f'Please log in to the system to review it.\n\nThank you.',
+                from_email=settings.EMAIL_HOST_USER,
+                recipient_list=[approver.email],
+                fail_silently=True
+            )
 
+        # ✅ Schedule escalation
+        escalate_pending_approval.apply_async((approval.id,), eta=now() + timedelta(hours=24))
         # ✅ Perform OCR on images and PDFs with enhancement
         file_path = file_instance.file.path
         extracted_text = ""
@@ -85,29 +107,7 @@ class FileViewSet(viewsets.ModelViewSet):
         _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return thresh
 
-        # 🔥 Auto-create a FileApproval and send mail manually
-        approver = User.objects.filter(is_staff=True).exclude(id=user.id).first()
-        if approver:
-            approval = FileApproval.objects.create(
-                file=file_instance,
-                approver=approver,
-                status='pending'
-            )
-        
-        # ✅ Manually send the email (since perform_create of FileApprovalViewSet isn't triggered)
-        if approver.email:
-            send_mail(
-                subject='New File Pending Approval',
-                message=f'Dear {approver.get_full_name()},\n\n'
-                        f'A file "{file_instance.name}" has been submitted and requires your approval.\n\n'
-                        f'Please log in to the system to review it.\n\nThank you.',
-                from_email=settings.EMAIL_HOST_USER,
-                recipient_list=[approver.email],
-                fail_silently=True
-            )
-
-        # ✅ Schedule escalation
-        escalate_pending_approval.apply_async((approval.id,), eta=now() + timedelta(hours=24))
+      
     
     @action(detail=True, methods=['POST'], permission_classes=[IsOwnerOrAdmin])
     def restore(self, request, pk=None):

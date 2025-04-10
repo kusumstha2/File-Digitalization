@@ -183,4 +183,21 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 # CELERY_BROKER_URL=redis://localhost:6379/0
 
 
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",  # Change if Redis is hosted elsewhere
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
+    }
+}
 
+
+CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_ROUTES = {
+    'project.Filedigital.tasks.send_test_email': {'queue': 'celery'},
+}
