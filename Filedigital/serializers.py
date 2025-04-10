@@ -17,6 +17,7 @@ class FileApprovalSerializer(serializers.ModelSerializer):
     class Meta:
         model = FileApproval
         fields = '__all__'
+        read_only_fields = ['request_date', 'decision_date']
 
 
 
