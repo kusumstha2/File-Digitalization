@@ -58,7 +58,7 @@ class FileApproval(models.Model):
     notes = models.TextField(blank=True, null=True)
 
     def __str__(self):
-        return f"{self.file.name} - {self.status}"
+        return f"{self.file.name} - {self.status} - {self.approver.id}"
 
 
 
