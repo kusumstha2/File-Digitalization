@@ -11,16 +11,17 @@
         import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-messaging.js";
 
         // Firebase configuration
-        const firebaseConfig = {
-            apiKey: "{{apiKey}}",
-            authDomain: "{{authDomain}}",
-            projectId: "{{projectId}}",
-            databaseURL: "{{databaseURL}}",
-            storageBucket: "{{storageBucket}}",
-            messagingSenderId: "{{messagingSenderId}}",
-            appId: "{{appId}}",
-            measurementId: "{{measurementId}}"
-        };
+       // Firebase configuration
+       const firebaseConfig = {
+        apiKey: "AIzaSyDciLai03Bm3ME9b7oybAUoZWv7RKEUoPk",
+        authDomain: "notification-1622c.firebaseapp.com",
+        projectId: "notification-1622c",
+        databaseURL: "https://notification-1622c-default-rtdb.firebaseio.com",
+        storageBucket: "notification-1622c.firebasestorage.app",
+        messagingSenderId: "217612895243",
+        appId: "1:217612895243:web:854de0888658d11f70b30e",
+        measurementId: "G-LBME2LV4NK"
+    };
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const messaging = getMessaging(app);

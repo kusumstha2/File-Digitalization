@@ -45,11 +45,11 @@ def send_push_notification(auth_token, fcm_token):
             }
         }
     })
-    fcm_api ="BK5XTUQhh8AUKpqfp2tUthuXmsqZOzgbYIESj79zO06x_LiHV4Ksrq0l9MzC-zNfNwrytTGFJSpRK9A8Rd5BbyE"
+    
     headers = {
         'Content-Type': 'application/json',
-        'Authorization': 'key='+fcm_api}
-    
+        'Authorization': f'Bearer {auth_token}'
+    }
 
     print("Payload:", payload)
     print("Headers:", headers)
