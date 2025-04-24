@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 from firebase_admin import messaging
-# Load .env file
-load_dotenv()
+
+
+
 
 def generate_firebase_auth_key():
     scopes = ['https://www.googleapis.com/auth/firebase.messaging']

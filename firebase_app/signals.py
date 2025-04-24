@@ -1,10 +1,10 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from .models import *
-
 from firebase_app.models import *
 from firebase_app.firebase import generate_firebase_auth_key, send_push_notification
-
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from Filedigital.models import *
 @receiver(post_save, sender=File)
 def notify_user_on_file_upload(sender, instance, created, **kwargs):
     if created:
@@ -34,3 +34,7 @@ def notify_user_on_file_upload(sender, instance, created, **kwargs):
 
         except Exception as e:
             print(f"Error sending notification: {e}")
+
+
+
+

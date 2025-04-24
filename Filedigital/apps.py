@@ -5,5 +5,3 @@ class FiledigitalConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "Filedigital"
     
-    def ready(self):
-        import Filedigital.signals

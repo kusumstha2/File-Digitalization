@@ -13,14 +13,14 @@
         // Firebase configuration
        // Firebase configuration
        const firebaseConfig = {
-        apiKey: "AIzaSyDciLai03Bm3ME9b7oybAUoZWv7RKEUoPk",
-        authDomain: "notification-1622c.firebaseapp.com",
-        projectId: "notification-1622c",
-        databaseURL: "https://notification-1622c-default-rtdb.firebaseio.com",
-        storageBucket: "notification-1622c.firebasestorage.app",
-        messagingSenderId: "217612895243",
-        appId: "1:217612895243:web:854de0888658d11f70b30e",
-        measurementId: "G-LBME2LV4NK"
+            apiKey: "AIzaSyDciLai03Bm3ME9b7oybAUoZWv7RKEUoPk",
+            authDomain: "notification-1622c.firebaseapp.com",
+            databaseURL: "https://notification-1622c-default-rtdb.firebaseio.com",
+            projectId: "notification-1622c",
+            storageBucket: "notification-1622c.firebasestorage.app",
+            messagingSenderId: "217612895243",
+            appId: "1:217612895243:web:16e8261bd5bd7bec70b30e",
+            measurementId: "G-154RB7WSG5"
     };
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
@@ -45,11 +45,11 @@
             .then((permission) =>{
                 if(permission === "granted"){
                     console.log("Notificatioin permission granted.");
-                    getToken(messaging, {vapidKey: 'BK5XTUQhh8AUKpqfp2tUthuXmsqZOzgbYIESj79zO06x_LiHV4Ksrq0l9MzC-zNfNwrytTGFJSpRK9A8Rd5BbyE'})
+                    getToken(messaging, {vapidKey: 'BOuKaIW-2BLaWeVF57ni6apQa7HH1CdJ1kQSvG6gc_9P5x4Kns9TV0ztppX3brkksvo3jwJU13mHBggJPBCpq4U'})
                     .then((currentToken)=> {
                     if(currentToken){
                         console.log("FCM Token: ", currentToken);
-                        fetch('save-token/', {
+                        fetch('/save-token/', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ token: currentToken }),
@@ -84,3 +84,5 @@
     <p>Click the button to enable notifications.</p>
 </body>
 </html>
+
+

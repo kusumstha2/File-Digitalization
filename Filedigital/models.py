@@ -25,12 +25,29 @@ class File(models.Model):
 
     def __str__(self):
         return self.name
-    
+# models.py
+
+class AccessRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('denied', 'Denied'),
+    ]
+
+    requester = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,related_name='access')  
+    file = models.ForeignKey(File, on_delete=models.CASCADE)  
+    is_approved = models.BooleanField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='reviewed_requests')
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    def __str__(self):
+        return f"Request by {self.requester.name} requests access to {self.file.name} "
+
 class Backup(models.Model):
     FILE_TYPES = [
         ('private', 'Private'),
         ('public', 'Public')
-    ]
+    ]   
 
     file = models.FileField(upload_to='backup_documents/')
     name = models.CharField(max_length=255)

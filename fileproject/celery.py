@@ -14,6 +14,11 @@ app = Celery("fileproject")
 
 # Load task modules from all registered Django app configs.
 app.config_from_object("django.conf:settings", namespace="CELERY")
+from django.conf import settings
+app.conf.update(
+    broker_url=settings.CELERY_BROKER_URL,
+    result_backend=settings.CELERY_RESULT_BACKEND,
+)
 
 # Autodiscover tasks in all installed apps
 app.autodiscover_tasks()
