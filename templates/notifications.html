@@ -45,7 +45,7 @@
             .then((permission) =>{
                 if(permission === "granted"){
                     console.log("Notificatioin permission granted.");
-                    getToken(messaging, {vapidKey: 'BOuKaIW-2BLaWeVF57ni6apQa7HH1CdJ1kQSvG6gc_9P5x4Kns9TV0ztppX3brkksvo3jwJU13mHBggJPBCpq4U'})
+                    getToken(messaging, {vapidKey: 'BOXzjRUQNlQZVHScIwZlOr7M3A5AyJcd_i7NmfARpw0VpZjAfRm-IVFqLomUrnNH499UlislSk1NloXtIqa9BgA'})
                     .then((currentToken)=> {
                     if(currentToken){
                         console.log("FCM Token: ", currentToken);

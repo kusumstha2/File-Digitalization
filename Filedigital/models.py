@@ -9,6 +9,10 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
+import os
+# models.py
+import os
+
 class File(models.Model):
     FILE_TYPES = [
         ('private', 'Private'),
@@ -18,14 +22,42 @@ class File(models.Model):
     file = models.FileField(upload_to='documents/', unique=True)
     name = models.CharField(max_length=255, unique=True)
     added_date = models.DateTimeField(auto_now_add=True)
-    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE,null=True)
     file_type = models.CharField(max_length=10, choices=FILE_TYPES, default='private')
     is_approved = models.BooleanField(default=False)
-    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,related_name='upload')
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='upload')
+
+    def save(self, *args, **kwargs):
+        if self.file:
+            ext = os.path.splitext(self.file.name)[1].lower()
+
+            if ext == '.pdf':
+                category_name = "PDF"
+            elif ext in ['.jpg', '.jpeg', '.png']:
+                category_name = "Image"
+            elif ext in ['.doc', '.docx']:
+                category_name = "Word Document"
+            elif ext in ['.xls', '.xlsx']:
+                category_name = "Excel Sheet"
+            elif ext in ['.ppt', '.pptx']:
+                category_name = "PowerPoint Presentation"
+            elif ext in ['.txt']:
+                category_name = "Text File"
+            elif ext in ['.zip', '.rar']:
+                category_name = "Compressed File"
+            else:
+                category_name = "Other Files"
+
+            # 🛠 Automatically create category if not exist
+            category_obj, created = Category.objects.get_or_create(name=category_name)
+
+            self.category = category_obj
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
-# models.py
+
 
 class AccessRequest(models.Model):
     STATUS_CHOICES = [

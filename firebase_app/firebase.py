@@ -34,12 +34,6 @@ def send_push_notification(auth_token, fcm_token):
                 "title": "Testing Testing",
                 "body": "Hey. testing notification"
             },
-        "android": {
-            "priority": "high",
-            "notification": {
-                "sound": "default"
-            }
-    },
             "data": {
                 "key1": "value1",
                 "key2": "value2"

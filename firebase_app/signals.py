@@ -16,16 +16,16 @@ def notify_user_on_file_upload(sender, instance, created, **kwargs):
             # Get the user's FCM token
             token_entry,created = NotificationToken.objects.get_or_create(owner=owner,token=auth_token)
             fcm_token = FCMTokens.objects.first().fcm_token
-            print(token_entry)
+            print(token_entry.token)
             if created:
                 token_entry.save()
                 send_push_notification(
                 token_entry.token,
-                fcm_token,)
+                fcm_token)
 
             # Firebase auth key (JWT or API key)
             # auth_token = generate_firebase_auth_key()
-            print("Firebase Auth Token:", auth_token)
+            print("FCM ",fcm_token)
 
             # Send notification
             

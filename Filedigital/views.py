@@ -90,18 +90,12 @@ class AccessRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_authenticated:
-            if user.is_staff:
-                return AccessRequest.objects.all()
-            else:
-                return AccessRequest.objects.filter(requester=user)
-        return AccessRequest.objects.none()
+        if user.is_staff:
+            return AccessRequest.objects.all()
+        return AccessRequest.objects.filter(user=user)
 
     def perform_create(self, serializer):
-        if self.request.user.is_authenticated:
-            serializer.save(requester=self.request.user)
-        else:
-            raise PermissionDenied("You must be authenticated to make an access request.")
+        serializer.save(user=self.request.user)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def review(self, request, pk=None):
@@ -109,14 +103,22 @@ class AccessRequestViewSet(viewsets.ModelViewSet):
         approve = request.data.get('is_approved')
 
         if approve is None:
-            return Response({'error': 'is_approved is required'}, status=400)
+            return Response({'error': 'Please provide is_approved field (true/false).'}, status=400)
 
         access_request.is_approved = approve
         access_request.reviewed_by = request.user
         access_request.reviewed_at = timezone.now()
         access_request.save()
 
-        return Response(AccessRequestSerializer(access_request).data)
+        # ✅ If approved, mark the associated file as approved
+        if approve and access_request.file:
+            file = access_request.file
+            file.is_approved = True
+            file.save()
+            # Invalidate file cache so updated data shows next time
+            invalidate_file_cache(file.id)
+
+        return Response(AccessRequestSerializer(access_request).data, status=status.HTTP_200_OK)
 class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
     serializer_class = FileSerializer
