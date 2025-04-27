@@ -1,6 +1,10 @@
 from rest_framework import serializers
 from .models import File, Category, FileApproval, OCRData, FileActivityLog,Notification
 
+from django.contrib.auth.models import Group
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
 class FileSerializer(serializers.ModelSerializer):
     class Meta:
         model = File
@@ -18,6 +22,13 @@ class FileApprovalSerializer(serializers.ModelSerializer):
         model = FileApproval
         fields = '__all__'
         read_only_fields = ['request_date', 'decision_date']
+        
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Filter only users in 'Admin' or 'Manager' groups
+        allowed_groups = Group.objects.filter(name__in=["Admin", "Manager"])
+        allowed_users = User.objects.filter(groups__in=allowed_groups).distinct()
+        self.fields['approver'].queryset = allowed_users
 
 
 
@@ -35,3 +46,4 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = '__all__'
+        ordering = ['-created_at']

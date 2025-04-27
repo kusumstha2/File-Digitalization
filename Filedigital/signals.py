@@ -5,6 +5,13 @@ from .models import *
 from firebase_app.models import *
 from firebase_app.firebase import generate_firebase_auth_key, send_push_notification
 
+from django.contrib.auth.signals import user_logged_in
+from django.contrib.auth.signals import user_logged_out
+from django.dispatch import receiver
+# from .models import FileActivityLog
+
+# from django.contrib.auth.signals import user_logged_in
+
 @receiver(post_save, sender=File)
 def notify_user_on_file_upload(sender, instance, created, **kwargs):
     if created:
@@ -34,3 +41,13 @@ def notify_user_on_file_upload(sender, instance, created, **kwargs):
 
         except Exception as e:
             print(f"Error sending notification: {e}")
+
+
+
+@receiver(user_logged_in)
+def log_user_login(sender, request, user, **kwargs):
+    FileActivityLog.objects.create(user=user, action='login')
+    
+@receiver(user_logged_out)
+def log_user_logout(sender, request, user, **kwargs):
+    FileActivityLog.objects.create(user=user, action='logout')

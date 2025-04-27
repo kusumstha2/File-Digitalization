@@ -56,6 +56,10 @@ INSTALLED_APPS = [
 
 FIREBASE_CONFIG = os.getenv('FIREBASE_CONFIG')
 
+# from cryptography.fernet import Fernet; 
+# print(Fernet.generate_key().decode())
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+
 AUTH_USER_MODEL = 'users.User'
 
 MIDDLEWARE = [
@@ -200,4 +204,16 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_ROUTES = {
     'project.Filedigital.tasks.send_test_email': {'queue': 'celery'},
+}
+
+LOGGING = {
+    'version': 1,
+    
+    'handlers': {
+        'console': {
+            'level': 'INFO',  # Make sure this is INFO or lower
+            'class': 'logging.StreamHandler',
+        },
+    },
+
 }

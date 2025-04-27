@@ -1,10 +1,11 @@
 from django.db import models
 from users.models import *
 # Create your models here.
-from django.db import models
 from django.conf import settings
+
+from django.utils.timezone import now
 class Category(models.Model):
-    name = models.CharField(max_length=255, unique=True,default=1)
+    name = models.CharField(max_length=255, unique=True)
 
     def __str__(self):
         return self.name
@@ -32,8 +33,8 @@ class Backup(models.Model):
         ('public', 'Public')
     ]
 
-    file = models.FileField(upload_to='backup_documents/')
-    name = models.CharField(max_length=255)
+    file = models.FilePathField(path=os.path.join(settings.MEDIA_ROOT, 'backup_documents'), unique= True)
+    name = models.CharField(max_length=255, unique=True)
     added_date = models.DateTimeField(auto_now_add=True)
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
     file_type = models.CharField(max_length=10, choices=FILE_TYPES, default='private')
@@ -70,17 +71,19 @@ class FileActivityLog(models.Model):
         ('reject', 'Reject'),
         ('download', 'Download'),
         ('share', 'Share'),
-        ('comment', 'Comment')
+        ('comment', 'Comment'),
+        ('login', 'Login'),
+        ('logout', 'Logout'),
     ]
 
-    file = models.ForeignKey(File, on_delete=models.CASCADE)
+    file = models.ForeignKey('File', on_delete=models.CASCADE, null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     action = models.CharField(max_length=10, choices=ACTION_CHOICES)
     timestamp = models.DateTimeField(auto_now_add=True)
     notes = models.TextField(blank=True, null=True)
 
     def __str__(self):
-        return f"{self.user.email} - {self.action} - {self.file.name}"
+        return f"{self.user.email} - {self.action}"
 
 class OCRData(models.Model):
     file = models.OneToOneField(File, on_delete=models.CASCADE)
@@ -94,7 +97,7 @@ class Notification(models.Model):
     user_id = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     message = models.TextField()
     is_read = models.BooleanField(default=False)
-    created_at = models.DateTimeField(default=True)
+    created_at = models.DateTimeField(default=now)
 
-    def __str__(self):
+    def __str__(self):   
         return f"Notification for {self.user_id.username} - {self.message[:50]}..."  
