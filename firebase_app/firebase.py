@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 from firebase_admin import messaging
-# Load .env file
-load_dotenv()
+
+
+
 
 def generate_firebase_auth_key():
     scopes = ['https://www.googleapis.com/auth/firebase.messaging']
@@ -30,26 +31,20 @@ def send_push_notification(auth_token, fcm_token):
         "message": {
             "token": fcm_token,
             "notification": {
-                "title": "Testing Testing",
-                "body": "Hey. testing notification"
+                "title": "Your file is uploaded and backup is created ",
+                "body": "You can restore your file if deleted "
             },
-        "android": {
-            "priority": "high",
-            "notification": {
-                "sound": "default"
-            }
-    },
             "data": {
                 "key1": "value1",
                 "key2": "value2"
             }
         }
     })
-    fcm_api ="BK5XTUQhh8AUKpqfp2tUthuXmsqZOzgbYIESj79zO06x_LiHV4Ksrq0l9MzC-zNfNwrytTGFJSpRK9A8Rd5BbyE"
+    
     headers = {
         'Content-Type': 'application/json',
-        'Authorization': 'key='+fcm_api}
-    
+        'Authorization': f'Bearer {auth_token}'
+    }
 
     print("Payload:", payload)
     print("Headers:", headers)

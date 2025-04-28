@@ -175,6 +175,7 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'kusumshrestha367@gmail.com'
 EMAIL_HOST_PASSWORD = 'dfcyjywgwtexzsoo'
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+ADMIN_EMAIL = 'krijalsuwal67@gmail.com'
 
 # EMAIL_BACKEND = os.getenv('EMAIL_BACKEND')
 # EMAIL_HOST = os.getenv('EMAIL_HOST')
@@ -185,12 +186,10 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 # DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 
 # CELERY_BROKER_URL=redis://localhost:6379/0
-
-
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://127.0.0.1:6379/1",  # Change if Redis is hosted elsewhere
+        "LOCATION": "redis://127.0.0.1:6379/1",  # Use port 6379
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         }
@@ -198,13 +197,16 @@ CACHES = {
 }
 
 
-CELERY_BROKER_URL = "redis://localhost:6379/0"
-CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SERIALIZER = "json"
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-CELERY_TASK_ROUTES = {
-    'project.Filedigital.tasks.send_test_email': {'queue': 'celery'},
-}
+
+
+# CELERY_BROKER_URL = 'redis://localhost:6379/0'  # Or your broker
+# CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+# CELERY_ACCEPT_CONTENT = ["json"]
+# CELERY_TASK_SERIALIZER = "json"
+# CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# CELERY_TASK_ROUTES = {
+#     'project.Filedigital.tasks.send_test_email': {'queue': 'celery'},
+# }
 
 LOGGING = {
     'version': 1,

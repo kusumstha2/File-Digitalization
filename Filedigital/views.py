@@ -2,7 +2,8 @@ from django.shortcuts import render
 import pytesseract
 from PIL import Image
 from pdf2image import convert_from_path
-from rest_framework import viewsets
+from django.contrib.postgres.search import SearchVector, SearchQuery
+from rest_framework import viewsets,status
 from .models import File, Category, FileApproval, OCRData, FileActivityLog, Backup
 from .serializers import (FileSerializer,CategorySerializer,FileApprovalSerializer,  OCRDataSerializer, FileActivityLogSerializer)
 from rest_framework.permissions import IsAuthenticated
@@ -11,6 +12,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from .permissions import *
 import logging
+from django.db.models import Q, Count
+from django.utils.dateparse import parse_date
+import json
+from rest_framework.filters import SearchFilter
 
 import threading
 import time
@@ -24,12 +29,105 @@ from django.utils.timezone import now
 from django.core.mail import send_mail
 from django.conf import settings
 from users.models import User
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
+import json
 from django.core.cache.backends.base import DEFAULT_TIMEOUT
 from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 
 import cv2
 import numpy as np
+from django.shortcuts import get_object_or_404
+from django.core.cache import cache
+from rest_framework.response import Response
+from datetime import datetime
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.utils.timezone import now
+from django.http import JsonResponse
+from .models import File, AccessRequest
+from rest_framework import viewsets, permissions, status
+from rest_framework.response import Response
+from django.utils.timezone import now
+from .models import AccessRequest
+from .serializers import AccessRequestSerializer
+
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.utils.timezone import now
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAdminUser
+
+logger = logging.getLogger(__name__)
+
+
+
+def get_or_set_cache(cache_key, queryset, serializer_class, timeout=60*15, force_refresh=False):
+    """
+    Fetch data from cache or set cache if not available.
+    If data is not found in cache, it is fetched from the database
+    and cached for subsequent requests.
+    """
+    if force_refresh:
+        cache.delete(cache_key)  
+
+    data = cache.get(cache_key)
+
+    if data is None:
+        print(f"Fetching {cache_key} from Database...")
+        serialized_data = serializer_class(queryset, many=True).data
+        cache.set(cache_key, json.dumps(serialized_data), timeout)
+        print(f"Cache set for {cache_key}")
+        return serialized_data
+    else:
+        print(f"Fetching {cache_key} from Cache...")
+        return json.loads(data)
+
+def invalidate_cache(cache_key):
+    """
+    Invalidate a specific cache key.
+    """
+    cache.delete(cache_key)
+    print(f"Cache invalidated for key: {cache_key}")
+
+
+class AccessRequestViewSet(viewsets.ModelViewSet):
+    queryset = AccessRequest.objects.all()
+    serializer_class = AccessRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            return AccessRequest.objects.all()
+        return AccessRequest.objects.filter(user=user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def review(self, request, pk=None):
+        access_request = self.get_object()
+        approve = request.data.get('is_approved')
+
+        if approve is None:
+            return Response({'error': 'Please provide is_approved field (true/false).'}, status=400)
+
+        access_request.is_approved = approve
+        access_request.reviewed_by = request.user
+        access_request.reviewed_at = timezone.now()
+        access_request.save()
+
+        # ✅ If approved, mark the associated file as approved
+        if approve and access_request.file:
+            file = access_request.file
+            file.is_approved = True
+            file.save()
+            # Invalidate file cache so updated data shows next time
+            invalidate_file_cache(file.id)
+
+        return Response(AccessRequestSerializer(access_request).data, status=status.HTTP_200_OK)
 
 from .models import File, Backup
 from .utils import encrypt_file
@@ -51,9 +149,87 @@ class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
     serializer_class = FileSerializer 
     permission_classes = [DjangoModelPermissions]
+    serializer_class = FileSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [SearchFilter]
+    search_fields = ['category__id']
+
+    @action(detail=False, methods=['get'], url_path='search')
+    def search_files(self, request):
+        query = request.GET.get("query", "") or request.GET.get("q", "")
+        category = request.GET.get("category")
+        date = request.GET.get("date")
+
+        # Construct a cache key based on search parameters
+        cache_key = f"search:{query}:{category}:{date}"
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(json.loads(cached))
+
+        filters = Q()
+
+        # Search by query (name, OCR text, or file extension)
+        if query:
+            filters &= (
+                Q(name__icontains=query) |  # Case-insensitive partial match for name
+                Q(ocrdata__extracted_text__icontains=query) |  # OCR text match
+                Q(file__iendswith=f".{query.lower()}")  # Match file extension
+            )
+
+       
+        if category:
+            filters &= Q(category__id=category)  # Directly filter by category ID
+
+  
+        if date:
+            try:
+                parsed_date = datetime.strptime(date, '%Y-%m-%d').date()
+                filters &= Q(added_date__date=parsed_date)
+            except ValueError:
+                return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=400)
+
+
+        results = File.objects.filter(filters, is_approved=True).annotate(
+            popularity=Count('fileactivitylog')
+        ).order_by('-popularity', '-added_date')
+
+        serializer = self.get_serializer(results, many=True)
+
+
+        cache.set(cache_key, json.dumps(serializer.data), timeout=60 * 5)
+
+        return Response(serializer.data)
+
+    def list(self, request):
+            cache_key = 'file_list'
+
+            # 1. Try to get data from cache
+            cached_data = cache.get(cache_key)
+            if cached_data is not None:
+                print(f"✅ Fetching '{cache_key}' from Cache...")
+                return Response(json.loads(cached_data))
+
+            # 2. If cache miss, get data from DB
+            print(f"❌ '{cache_key}' not found in cache. Fetching from DB...")
+            queryset = File.objects.all()
+            serializer = FileSerializer(queryset, many=True)
+            data = serializer.data
+
+            # 3. Store data in cache for 15 minutes (or any desired time)
+            cache.set(cache_key, json.dumps(data), timeout=60 * 15)
+            print(f"📦 Stored '{cache_key}' in cache.")
+
+            return Response(data)
+    def retrieve(self, request, *args, **kwargs):
+        cache_key = f"File{kwargs.get('pk')}"
+        return Response(get_or_set_cache(cache_key, File.objects.filter(pk=kwargs.get('pk')), self.serializer_class))
 
     def perform_create(self, serializer):
         user = self.request.user  
+        file_instance = serializer.save(uploaded_by=user)  
+        invalidate_cache("all_files")
+
+  
         file_instance = serializer.save(uploaded_by=user)
         
         # Read original file content
@@ -115,6 +291,7 @@ class FileViewSet(viewsets.ModelViewSet):
         if approval:
             threading.Thread(target=escalate_pending_approval_thread, args=(approval.id,), daemon=True).start()
             
+        
         # ✅ Perform OCR on images and PDFs with enhancement
         file_path = file_instance.file.path
         extracted_text = ""
@@ -219,21 +396,94 @@ class FileViewSet(viewsets.ModelViewSet):
         serializer = FileSerializer(restored_file)
         return Response(serializer.data, status=201)
 
+    # @action(detail=True, methods=['GET'], permission_classes=[IsOwnerOrAdmin])
+    # def get_ocr_text(self, request, pk=None):
+    #         """API endpoint to retrieve OCR text for a file"""
+    #         try:
+    #             ocr_data = OCRData.objects.get(file_id=pk)
+    #             return Response({"file_id": pk, "extracted_text": ocr_data.extracted_text})
+    #         except OCRData.DoesNotExist:
+    #             try:
+    #                 file_instance = self.get_object()
+    #                 file_path = file_instance.file.path
+    #                 extracted_text = ""
+
+    #                 if file_path.lower().endswith('.pdf'):
+    #                     images = convert_from_path(file_path, dpi=300, poppler_path=r"C:\poppler-24.08.0\Library\bin")
+    #                     for img in images:
+    #                         extracted_text += pytesseract.image_to_string(img) + "\n"
+    #                 else:
+    #                     image = Image.open(file_path)
+    #                     extracted_text = pytesseract.image_to_string(image)
+
+    #                 # Save it in the OCRData model for next time
+    #                 OCRData.objects.create(file=file_instance, extracted_text=extracted_text)
+
+    #                 return Response({"file_id": pk, "extracted_text": extracted_text})
+    #             except Exception as e:
+    #                 return Response({"error": f"OCR extraction failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
     @action(detail=True, methods=['GET'], permission_classes=[IsOwnerOrAdmin])
     def get_ocr_text(self, request, pk=None):
-        """API endpoint to retrieve OCR text for a file"""
         try:
             ocr_data = OCRData.objects.get(file_id=pk)
             return Response({"file_id": pk, "extracted_text": ocr_data.extracted_text})
         except OCRData.DoesNotExist:
-            return Response({"error": "No OCR data found for this file"}, status=status.HTTP_404_NOT_FOUND)
+            try:
+                file_instance = self.get_object()
+                file_path = file_instance.file.path
+                extracted_text = ""
 
+                if file_path.lower().endswith('.pdf'):
+                    images = convert_from_path(file_path, dpi=300, poppler_path=r"C:\poppler-24.08.0\Library\bin")
+                    for img in images:
+                        extracted_text += pytesseract.image_to_string(img) + "\n"
 
+                elif file_path.lower().endswith('.txt'):
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        extracted_text = f.read()
+
+                elif file_path.lower().endswith('.docx'):
+                    doc = Document(file_path)
+                    for para in doc.paragraphs:
+                        extracted_text += para.text + "\n"
+
+                elif file_path.lower().endswith('.pptx'):
+                    prs = Presentation(file_path)
+                    for slide in prs.slides:
+                        for shape in slide.shapes:
+                            if hasattr(shape, "text"):
+                                extracted_text += shape.text + "\n"
+
+                elif file_path.lower().endswith('.xls') or file_path.lower().endswith('.xlsx'):
+                    df = pd.read_excel(file_path)
+                    extracted_text = df.to_string()
+
+                elif file_path.lower().endswith('.csv'):
+                    df = pd.read_csv(file_path)
+                    extracted_text = df.to_string()
+
+                OCRData.objects.create(file=file_instance, extracted_text=extracted_text)
+                return Response({"file_id": pk, "extracted_text": extracted_text})
+            except Exception as e:
+                logger.error(f"❌ Error during OCR extraction: {e}")
+                return Response({"error": "OCR extraction failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
     permission_classes = [DjangoModelPermissions]
 
+    def list(self, request, *args, **kwargs):
+        cached_data = cache.get('category_list')
+        if cached_data:
+            print("✅ Serving from cache: category list")
+            return Response(cached_data)
+
+        print("❌ 'category_list' not found in cache. Fetching from DB...")
+        response = super().list(request, *args, **kwargs)
+        cache.set('category_list', response.data, timeout=60 * 15)
+        print("📦 Stored 'category_list' in cache.")
+        return response
 
 class FileApprovalViewSet(viewsets.ModelViewSet):
     queryset = FileApproval.objects.all()
@@ -253,6 +503,19 @@ class FileApprovalViewSet(viewsets.ModelViewSet):
 #                             status=status.HTTP_403_FORBIDDEN)
 #         return super().dispatch(request, *args, **kwargs)
     
+
+    # def list(self, request, *args, **kwargs):
+    #     cached_data = cache.get('file_approval_list')
+    #     if cached_data:
+    #         print("✅ Serving from cache: file approvals")
+    #         return Response(cached_data)
+
+    #     print("❌ 'file_approval_list' not found in cache. Fetching from DB...")
+    #     response = super().list(request, *args, **kwargs)
+    #     cache.set('file_approval_list', response.data, timeout=60 * 15)
+    #     print("📦 Stored 'file_approval_list' in cache.")
+    #     return response
+
     def perform_create(self, serializer):
         approval = serializer.save()
 
@@ -334,10 +597,46 @@ def escalate_pending_approval_thread(approval_id):
         logger.error(f"❌ Approval with ID {approval_id} does not exist.")
     
 
+        escalate_pending_approval.apply_async((approval.id,), eta=now() + timedelta(minutes=1))
+        
+
+
+
 
 class FileActivityLogViewSet(viewsets.ModelViewSet):
     queryset = FileActivityLog.objects.all()
     serializer_class = FileActivityLogSerializer
+    def list(self, request, *args, **kwargs):
+            cache_key = 'activity_log_list'
+
+            # Check if the data is cached
+            cached_data = cache.get(cache_key)
+            if cached_data is not None:
+                print("✅ Serving from cache: activity logs")
+                return Response(json.loads(cached_data))
+
+            # If not cached, get data from DB
+            print("❌ Cache miss. Fetching activity logs from DB...")
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+            data = serializer.data
+
+            # Cache the serialized data for 15 minutes
+            cache.set(cache_key, json.dumps(data), timeout=60 * 15)
+            print("📦 Activity logs cached.")
+
+            return Response(data)
+        
+    def retrieve(self, request, *args, **kwargs):
+        cache_key = f"File{kwargs.get('pk')}"
+        return Response(get_or_set_cache(cache_key, FileActivityLog.objects.filter(pk=kwargs.get('pk')), self.serializer_class))
+
+    def perform_create(self, serializer):
+        serializer.save()
+ 
+        invalidate_cache("all_fileactivitylog")
+
+  
 
 
 # 🗓 Weekly Report Scheduler (Auto-run every 7 days)

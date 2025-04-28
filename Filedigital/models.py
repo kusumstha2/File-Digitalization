@@ -10,6 +10,10 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
+import os
+# models.py
+import os
+
 class File(models.Model):
     FILE_TYPES = [
         ('private', 'Private'),
@@ -19,19 +23,64 @@ class File(models.Model):
     file = models.FileField(upload_to='documents/', unique=True)
     name = models.CharField(max_length=255, unique=True)
     added_date = models.DateTimeField(auto_now_add=True)
-    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE,null=True)
     file_type = models.CharField(max_length=10, choices=FILE_TYPES, default='private')
     is_approved = models.BooleanField(default=False)
-    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,related_name='upload')
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='upload')
+
+    def save(self, *args, **kwargs):
+        if self.file:
+            ext = os.path.splitext(self.file.name)[1].lower()
+
+            if ext == '.pdf':
+                category_name = "PDF"
+            elif ext in ['.jpg', '.jpeg', '.png']:
+                category_name = "Image"
+            elif ext in ['.doc', '.docx']:
+                category_name = "Word Document"
+            elif ext in ['.xls', '.xlsx']:
+                category_name = "Excel Sheet"
+            elif ext in ['.ppt', '.pptx']:
+                category_name = "PowerPoint Presentation"
+            elif ext in ['.txt']:
+                category_name = "Text File"
+            elif ext in ['.zip', '.rar']:
+                category_name = "Compressed File"
+            else:
+                category_name = "Other Files"
+
+            # 🛠 Automatically create category if not exist
+            category_obj, created = Category.objects.get_or_create(name=category_name)
+
+            self.category = category_obj
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
-    
+
+
+class AccessRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('denied', 'Denied'),
+    ]
+
+    requester = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,related_name='access')  
+    file = models.ForeignKey(File, on_delete=models.CASCADE)  
+    is_approved = models.BooleanField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='reviewed_requests')
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    def __str__(self):
+        return f"Request by {self.requester.name} requests access to {self.file.name} "
+
 class Backup(models.Model):
     FILE_TYPES = [
         ('private', 'Private'),
         ('public', 'Public')
-    ]
+    ]   
 
     file = models.FilePathField(path=os.path.join(settings.MEDIA_ROOT, 'backup_documents'), unique= True)
     name = models.CharField(max_length=255, unique=True)

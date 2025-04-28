@@ -5,12 +5,18 @@ from django.contrib.auth.models import Group
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
+from .models import File, Category, FileApproval, OCRData, FileActivityLog,Notification,AccessRequest
 class FileSerializer(serializers.ModelSerializer):
     class Meta:
         model = File
         exclude = ['uploaded_by']
 
 
+class AccessRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AccessRequest
+        fields = '__all__'
+        read_only_fields = ['is_approved', 'reviewed_by', 'reviewed_at', 'created_at', 'requester']
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
