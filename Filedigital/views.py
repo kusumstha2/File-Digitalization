@@ -91,6 +91,13 @@ def invalidate_cache(cache_key):
     cache.delete(cache_key)
     print(f"Cache invalidated for key: {cache_key}")
 
+from django.utils import timezone
+from django.core.mail import send_mail
+from django.conf import settings
+from rest_framework import viewsets, status
+from rest_framework.response import Response
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 
 class AccessRequestViewSet(viewsets.ModelViewSet):
     queryset = AccessRequest.objects.all()
@@ -101,10 +108,11 @@ class AccessRequestViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_staff:
             return AccessRequest.objects.all()
-        return AccessRequest.objects.filter(user=user)
+        return AccessRequest.objects.filter(requester=user)
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        access_request = serializer.save(requester=self.request.user)
+        self.send_submission_notification(access_request)  # ⬅️ Send email on submission
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def review(self, request, pk=None):
@@ -119,15 +127,50 @@ class AccessRequestViewSet(viewsets.ModelViewSet):
         access_request.reviewed_at = timezone.now()
         access_request.save()
 
-        # ✅ If approved, mark the associated file as approved
+        # If approved, update the file's approval status
         if approve and access_request.file:
             file = access_request.file
             file.is_approved = True
             file.save()
-            # Invalidate file cache so updated data shows next time
-            invalidate_file_cache(file.id)
+
+        self.send_review_notification(access_request)  # ⬅️ Send email on approval/rejection
 
         return Response(AccessRequestSerializer(access_request).data, status=status.HTTP_200_OK)
+
+    def send_submission_notification(self, access_request):
+        subject = "Access Request Submitted"
+        message = (
+            f"Hello {access_request.requester.get_full_name()},\n\n"
+            f"Your request to access the file '{access_request.file.name}' has been submitted for review.\n"
+            f"You will be notified once it is reviewed.\n\nThank you."
+        )
+        self.send_email(access_request.requester.email, subject, message)
+
+    def send_review_notification(self, access_request):
+        subject = f"Access Request {'Approved' if access_request.is_approved else 'Denied'}"
+        message = (
+            f"Hello {access_request.requester.get_full_name()},\n\n"
+            f"Your request to access the file '{access_request.file.name}' has been "
+            f"{'approved' if access_request.is_approved else 'denied'} by {access_request.reviewed_by.get_full_name()}.\n\n"
+            f"Thank you."
+        )
+        self.send_email(access_request.requester.email, subject, message)
+
+    def send_email(self, to_email, subject, message):
+        try:
+            send_mail(
+                subject,
+                message,
+                settings.EMAIL_HOST_USER,
+                [to_email],
+                fail_silently=False
+            )
+        except Exception as e:
+            # Log the exception (optional: logger.error(f"Email failed: {e}"))
+            print(f"Email send failed: {e}")
+
+
+
 
 from .models import File, Backup
 from .utils import encrypt_file
@@ -291,38 +334,84 @@ class FileViewSet(viewsets.ModelViewSet):
         if approval:
             threading.Thread(target=escalate_pending_approval_thread, args=(approval.id,), daemon=True).start()
             
-        
-        # ✅ Perform OCR on images and PDFs with enhancement
-        file_path = file_instance.file.path
-        extracted_text = ""
-
-    try:
-        if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
-            image = cv2.imread(file_path)
-            image = self.preprocess_image(image)
-            extracted_text = pytesseract.image_to_string(image)
-
-        elif file_path.lower().endswith('.pdf'):
-            images = convert_from_path(file_path)
-            for image in images:
-                image = np.array(image)
-                image = self.preprocess_image(image)
-                extracted_text += pytesseract.image_to_string(image) + "\n"
-
-            if extracted_text:
-                OCRData.objects.create(file=file_instance, extracted_text=extracted_text)
-                logger.info(f"OCRData successfully created for file: {file_instance.name}")
-            else:
-                logger.warning(f"OCRData extraction failed: No text found in {file_instance.name}")
-
-    except Exception as e:
-            logger.error(f"OCR Extraction Error: {e}")
-
     def preprocess_image(self, image):
         """Enhances the image before OCR."""
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return thresh
+    
+    def perform_ocr_extraction(self, file_instance):
+        """Performs OCR on the uploaded file and saves extracted text."""
+        try:
+            file_path = file_instance.file.path
+            extracted_text = "" 
+
+            if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
+                image = cv2.imread(file_path)
+                image = self.preprocess_image(image)
+                extracted_text = pytesseract.image_to_string(image)
+
+            elif file_path.lower().endswith('.pdf'):
+                images = convert_from_path(file_path)
+                for image in images:
+                    image = np.array(image)
+                    image = self.preprocess_image(image)
+                    extracted_text += pytesseract.image_to_string(image) + "\n"
+
+                if extracted_text:
+                    OCRData.objects.create(file=file_instance, extracted_text=extracted_text)
+                    logger.info(f"OCRData successfully created for file: {file_instance.name}")
+                else:
+                    logger.warning(f"OCRData extraction failed: No text found in {file_instance.name}")
+
+        except Exception as e:
+                logger.error(f"OCR Extraction Error: {e}")
+
+    @action(detail=True, methods=['GET'], permission_classes=[IsOwnerOrAdmin])
+    def get_ocr_text(self, request, pk=None):
+        try:
+            ocr_data = OCRData.objects.get(file_id=pk)
+            return Response({"file_id": pk, "extracted_text": ocr_data.extracted_text})
+        except OCRData.DoesNotExist:
+            try:
+                file_instance = self.get_object()
+                file_path = file_instance.file.path
+                extracted_text = ""
+
+                if file_path.lower().endswith('.pdf'):
+                    images = convert_from_path(file_path, dpi=300, poppler_path=r"C:\poppler-24.08.0\Library\bin")
+                    for img in images:
+                        extracted_text += pytesseract.image_to_string(img) + "\n"
+
+                elif file_path.lower().endswith('.txt'):
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        extracted_text = f.read()
+
+                elif file_path.lower().endswith('.docx'):
+                    doc = Document(file_path)
+                    for para in doc.paragraphs:
+                        extracted_text += para.text + "\n"
+
+                elif file_path.lower().endswith('.pptx'):
+                    prs = Presentation(file_path)
+                    for slide in prs.slides:
+                        for shape in slide.shapes:
+                            if hasattr(shape, "text"):
+                                extracted_text += shape.text + "\n"
+
+                elif file_path.lower().endswith('.xls') or file_path.lower().endswith('.xlsx'):
+                    df = pd.read_excel(file_path)
+                    extracted_text = df.to_string()
+
+                elif file_path.lower().endswith('.csv'):
+                    df = pd.read_csv(file_path)
+                    extracted_text = df.to_string()
+
+                OCRData.objects.create(file=file_instance, extracted_text=extracted_text)
+                return Response({"file_id": pk, "extracted_text": extracted_text})
+            except Exception as e:
+                logger.error(f"❌ Error during OCR extraction: {e}")
+                return Response({"error": "OCR extraction failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
       
     
@@ -423,51 +512,8 @@ class FileViewSet(viewsets.ModelViewSet):
     #             except Exception as e:
     #                 return Response({"error": f"OCR extraction failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    @action(detail=True, methods=['GET'], permission_classes=[IsOwnerOrAdmin])
-    def get_ocr_text(self, request, pk=None):
-        try:
-            ocr_data = OCRData.objects.get(file_id=pk)
-            return Response({"file_id": pk, "extracted_text": ocr_data.extracted_text})
-        except OCRData.DoesNotExist:
-            try:
-                file_instance = self.get_object()
-                file_path = file_instance.file.path
-                extracted_text = ""
-
-                if file_path.lower().endswith('.pdf'):
-                    images = convert_from_path(file_path, dpi=300, poppler_path=r"C:\poppler-24.08.0\Library\bin")
-                    for img in images:
-                        extracted_text += pytesseract.image_to_string(img) + "\n"
-
-                elif file_path.lower().endswith('.txt'):
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        extracted_text = f.read()
-
-                elif file_path.lower().endswith('.docx'):
-                    doc = Document(file_path)
-                    for para in doc.paragraphs:
-                        extracted_text += para.text + "\n"
-
-                elif file_path.lower().endswith('.pptx'):
-                    prs = Presentation(file_path)
-                    for slide in prs.slides:
-                        for shape in slide.shapes:
-                            if hasattr(shape, "text"):
-                                extracted_text += shape.text + "\n"
-
-                elif file_path.lower().endswith('.xls') or file_path.lower().endswith('.xlsx'):
-                    df = pd.read_excel(file_path)
-                    extracted_text = df.to_string()
-
-                elif file_path.lower().endswith('.csv'):
-                    df = pd.read_csv(file_path)
-                    extracted_text = df.to_string()
-
-                OCRData.objects.create(file=file_instance, extracted_text=extracted_text)
-                return Response({"file_id": pk, "extracted_text": extracted_text})
-            except Exception as e:
-                logger.error(f"❌ Error during OCR extraction: {e}")
-                return Response({"error": "OCR extraction failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+            
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer

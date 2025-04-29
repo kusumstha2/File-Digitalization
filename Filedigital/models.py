@@ -2,6 +2,7 @@ from django.db import models
 from users.models import *
 # Create your models here.
 from django.conf import settings
+from django.core.mail import send_mail
 
 from django.utils.timezone import now
 class Category(models.Model):
@@ -75,6 +76,37 @@ class AccessRequest(models.Model):
     reviewed_at = models.DateTimeField(null=True, blank=True)
     def __str__(self):
         return f"Request by {self.requester.name} requests access to {self.file.name} "
+    
+    def save(self, *args, **kwargs):
+        # Check for approval status change
+        if self.pk:
+            original = AccessRequest.objects.get(pk=self.pk)
+            if original.is_approved != self.is_approved:
+                self.send_review_notification()
+
+        super().save(*args, **kwargs)
+
+    def send_review_notification(self):
+        if self.is_approved is None:
+            return  # Skip if still pending
+
+        subject = f"Access Request {'Approved' if self.is_approved else 'Denied'}"
+        message = (
+            f"Hello {self.requester.get_full_name()},\n\n"
+            f"Your request to access the file '{self.file.name}' has been "
+            f"{'approved' if self.is_approved else 'denied'}.\n\nThank you."
+        )
+
+        try:
+            send_mail(
+                subject,
+                message,
+                settings.EMAIL_HOST_USER,
+                [self.requester.email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            print(f"Failed to send email: {e}")
 
 class Backup(models.Model):
     FILE_TYPES = [
