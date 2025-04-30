@@ -643,7 +643,7 @@ def escalate_pending_approval_thread(approval_id):
         logger.error(f"❌ Approval with ID {approval_id} does not exist.")
     
 
-        escalate_pending_approval.apply_async((approval.id,), eta=now() + timedelta(minutes=1))
+        escalate_pending_approval_thread.apply_async((approval.id,), eta=now() + timedelta(minutes=1))
         
 
 
