@@ -120,14 +120,14 @@ A document digitalization and workflow management system built with Django REST 
 ## 📦 Dependencies Installation
 
 ### 📄 OCR Setup (Tesseract + Poppler)
--Download Tesseract
--Download Poppler
+- Download Tesseract
+- Download Poppler
 
 ### ⚡ Redis Cache Setup
--Install Redis
--Open cmd 
--Open redis directy as cd
--Open redis-server
+- Install Redis
+- Open cmd 
+- Open redis directy as cd
+- Open redis-server
 
 ---
 
