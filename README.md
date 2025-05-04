@@ -117,18 +117,6 @@ A document digitalization and workflow management system built with Django REST 
 
 ---
 
-## 🔐 Authentication
-
-Uses **Djoser** for token-based authentication:
-
-```http
-POST /auth/token/login/
-{
-  "username": "user",
-  "password": "pass"
-}
-
-
 ## 📦 Dependencies Installation
 
 ### 📄 OCR Setup (Tesseract + Poppler)
@@ -140,3 +128,17 @@ POST /auth/token/login/
 -Open cmd 
 -Open redis directy as cd
 -Open redis-server
+
+---
+
+## 🔐 Authentication
+
+Uses **Djoser** for token-based authentication:
+
+```http
+POST /auth/token/login/
+{
+  "username": "user",
+  "password": "pass"
+}
+
