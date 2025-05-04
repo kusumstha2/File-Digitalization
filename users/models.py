@@ -34,7 +34,9 @@ class User(AbstractUser):
     )
     email = models.EmailField(unique=True)
     location = models.CharField(max_length=255)
-    role = models.ForeignKey(Group, related_name="user_role", blank=True, null=True, on_delete=models.SET_NULL)
+    # role = models.ForeignKey(Group, related_name="user_role", blank=True, on_delete=models.SET_NULL)
+    role = models.ForeignKey(Group, related_name="user_role",null=True, on_delete=models.PROTECT)
+
     
    
     USERNAME_FIELD = "email"

@@ -1,5 +1,6 @@
 from django.shortcuts import render
 import pytesseract
+pytesseract.pytesseract.tesseract_cmd = r"C:/Program Files/Tesseract-OCR/tesseract.exe"
 from PIL import Image
 from pdf2image import convert_from_path
 from django.contrib.postgres.search import SearchVector, SearchQuery
@@ -59,6 +60,10 @@ from django.utils.timezone import now
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAdminUser
 
+
+from docx import Document 
+from pptx import Presentation 
+import pandas as pd
 logger = logging.getLogger(__name__)
 
 
@@ -271,11 +276,113 @@ class FileViewSet(viewsets.ModelViewSet):
         user = self.request.user  
         file_instance = serializer.save(uploaded_by=user)  
         invalidate_cache("all_files")
-
-  
-        file_instance = serializer.save(uploaded_by=user)
         
-        # Read original file content
+        # Log file upload activity
+        FileActivityLog.objects.create(
+            file=file_instance,
+            user=user,
+            action='upload',
+            notes='File uploaded via API'
+        )
+
+        # ✅ Create Backup
+        Backup.objects.create(
+            file=file_instance.file,
+            name=file_instance.name,
+            category=file_instance.category,
+            file_type=file_instance.file_type,
+            is_approved=file_instance.is_approved,
+            uploaded_by=user
+        )
+        
+        # 🔥 Auto-create a FileApproval and send mail manually
+        approver = User.objects.filter(is_staff=True).exclude(id=user.id).first()
+        approval = None
+        if approver:
+            approval = FileApproval.objects.create(
+                file=file_instance,
+                approver=approver,
+                status='pending'
+            )
+        
+            # ✅ Manually send the email (since perform_create of FileApprovalViewSet isn't triggered)
+            if approver.email:
+                send_mail(
+                    subject='New File Pending Approval',
+                    message=f'Dear {approver.get_full_name()},\n\n'
+                            f'A file "{file_instance.name}" has been submitted and requires your approval.\n\n'
+                            f'Please log in to the system to review it.\n\nThank you.',
+                    from_email=settings.EMAIL_HOST_USER,
+                    recipient_list=[approver.email],
+                    fail_silently=True
+                )
+
+        # Start background thread for escalation
+        if approval:
+            threading.Thread(target=escalate_pending_approval_thread, args=(approval.id,), daemon=True).start()
+            
+        # Run file processing (OCR extraction, etc.) in a background thread
+        threading.Thread(target=self.process_file_in_background, args=(file_instance, user), daemon=True).start()
+    
+    def process_file_in_background(self, file_instance, user):
+        file_path = file_instance.file.path
+        extracted_text = ""
+        try:
+            if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
+                image = cv2.imread(file_path)
+                image = self.preprocess_image(image)
+                extracted_text = pytesseract.image_to_string(image)
+
+            elif file_path.lower().endswith('.pdf'):
+                images = convert_from_path(file_path)
+                for image in images:
+                    image = np.array(image)
+                    image = self.preprocess_image(image)
+                    extracted_text += pytesseract.image_to_string(image) + "\n"
+
+            elif file_path.lower().endswith('.txt'):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    extracted_text = f.read()
+
+            elif file_path.lower().endswith('.docx'):
+                doc = Document(file_path)
+                for para in doc.paragraphs:
+                    extracted_text += para.text + "\n"
+
+            elif file_path.lower().endswith('.pptx'):
+                prs = Presentation(file_path)
+                for slide in prs.slides:
+                    for shape in slide.shapes:
+                        if hasattr(shape, "text"):
+                            extracted_text += shape.text + "\n"
+
+            elif file_path.lower().endswith(('.xls', '.xlsx')):
+                df = pd.read_excel(file_path)
+                extracted_text = df.to_string()
+
+            elif file_path.lower().endswith('.csv'):
+                df = pd.read_csv(file_path)
+                extracted_text = df.to_string()
+
+            # If OCR text is extracted, save it to the OCRData model
+            if extracted_text:
+                OCRData.objects.create(file=file_instance, extracted_text=extracted_text)
+                logger.info(f"OCRData successfully created for file: {file_instance.name}")
+            else:
+                logger.warning(f"OCR extraction failed: No text found in {file_instance.name}")
+
+        except Exception as e:
+            logger.error(f"OCR Extraction Error: {e}")
+    
+    def preprocess_image(self, image):
+        """Enhances the image before OCR."""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        return thresh
+        
+    def backup_and_notify(self, file_instance, user):    
+        """Handles backup and email notification after file upload."""
+        # Encrypt the content and backup logic (as before)
         with open(file_instance.file.path, 'rb') as f:
             raw_data = f.read()
         
@@ -290,83 +397,7 @@ class FileViewSet(viewsets.ModelViewSet):
         # Save encrypted file
         with open(backup_path, 'wb') as f:
             f.write(encrypted_data)
-        
-         # Log file upload activity
-        FileActivityLog.objects.create(
-            file=file_instance,
-            user=user,
-            action='upload',
-            notes='File uploaded via API'
-        )
-
-        # ✅ Create Backup
-        Backup.objects.create(
-            file=f"backup_documents/{backup_filename}",
-            name=file_instance.name,
-            category=file_instance.category,
-            file_type=file_instance.file_type,
-            is_approved=file_instance.is_approved,
-            uploaded_by=user
-        )
-       # 🔥 Auto-create a FileApproval and send mail manually
-        approver = User.objects.filter(is_staff=True).exclude(id=user.id).first()
-        approval = None
-        if approver:
-            approval = FileApproval.objects.create(
-                file=file_instance,
-                approver=approver,
-                status='pending'
-            )
-        
-        # ✅ Manually send the email (since perform_create of FileApprovalViewSet isn't triggered)
-        if approver.email:
-            send_mail(
-                subject='New File Pending Approval',
-                message=f'Dear {approver.get_full_name()},\n\n'
-                        f'A file "{file_instance.name}" has been submitted and requires your approval.\n\n'
-                        f'Please log in to the system to review it.\n\nThank you.',
-                from_email=settings.EMAIL_HOST_USER,
-                recipient_list=[approver.email],
-                fail_silently=True
-            )
-
-        # Start background thread for escalation
-        if approval:
-            threading.Thread(target=escalate_pending_approval_thread, args=(approval.id,), daemon=True).start()
-            
-    def preprocess_image(self, image):
-        """Enhances the image before OCR."""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return thresh
     
-    def perform_ocr_extraction(self, file_instance):
-        """Performs OCR on the uploaded file and saves extracted text."""
-        try:
-            file_path = file_instance.file.path
-            extracted_text = "" 
-
-            if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif')):
-                image = cv2.imread(file_path)
-                image = self.preprocess_image(image)
-                extracted_text = pytesseract.image_to_string(image)
-
-            elif file_path.lower().endswith('.pdf'):
-                images = convert_from_path(file_path)
-                for image in images:
-                    image = np.array(image)
-                    image = self.preprocess_image(image)
-                    extracted_text += pytesseract.image_to_string(image) + "\n"
-
-                if extracted_text:
-                    OCRData.objects.create(file=file_instance, extracted_text=extracted_text)
-                    logger.info(f"OCRData successfully created for file: {file_instance.name}")
-                else:
-                    logger.warning(f"OCRData extraction failed: No text found in {file_instance.name}")
-
-        except Exception as e:
-                logger.error(f"OCR Extraction Error: {e}")
-
     @action(detail=True, methods=['GET'], permission_classes=[IsOwnerOrAdmin])
     def get_ocr_text(self, request, pk=None):
         try:
@@ -412,78 +443,51 @@ class FileViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 logger.error(f"❌ Error during OCR extraction: {e}")
                 return Response({"error": "OCR extraction failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+        @action(detail=True, methods=['POST'], permission_classes=[IsOwnerOrAdmin])
+        def restore(self, request, pk=None):
+            """Restores a file from backup"""
+            try:
+                backup_instance = Backup.objects.get(pk=pk)
 
-      
-    
-    # @action(detail=True, methods=['POST'], permission_classes=[IsOwnerOrAdmin])
-    # def restore(self, request, pk=None):
-    #     """Restores a file from backup"""
-    #     try:
-    #         backup_instance = Backup.objects.get(pk=pk)
+                # Prevent restoring if the file already exists
+                if File.objects.filter(file=backup_instance.file, uploaded_by=backup_instance.uploaded_by).exists():
+                    return Response(
+                        {"error": "This file has already been restored."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                # Path to the backup file
+                backup_path = backup_instance.file.path
+                # Read and decrypt file
+                try:
+                    with open(backup_path, 'rb') as f:
+                       encrypted_data = f.read()
 
-    #         # Prevent restoring if the file already exists
-    #         if File.objects.filter(file=backup_instance.file, uploaded_by=backup_instance.uploaded_by).exists():
-    #             return Response(
-    #                 {"error": "This file has already been restored."},
-    #                 status=status.HTTP_400_BAD_REQUEST
-    #             )
+                    decrypted_data = decrypt_file(encrypted_data)
+                except Exception as e:
+                    return Response({"error": f"Failed to decrypt file: {str(e)}"}, status=500)
 
-    #         # Restore the file
-    #         restored_file = File.objects.create(
-    #             file=backup_instance.file,
-    #             name=backup_instance.name,
-    #             added_date=backup_instance.added_date,
-    #             category=backup_instance.category,
-    #             file_type=backup_instance.file_type,
-    #             is_approved=backup_instance.is_approved,
-    #             uploaded_by=backup_instance.uploaded_by
-    #         )
+                # Create new file
+                content_file = ContentFile(decrypted_data, name=backup_instance.name)
 
-    #         return Response(
-    #             {"message": "File restored successfully", "file_id": restored_file.id},
-    #             status=status.HTTP_201_CREATED
-    #         )
+                # Restore the file
+                restored_file = File.objects.create(
+                    file=backup_instance.file,
+                    name=backup_instance.name,
+                    added_date=backup_instance.added_date,
+                    category=backup_instance.category,
+                    file_type=backup_instance.file_type,
+                    is_approved=backup_instance.is_approved,
+                    uploaded_by=backup_instance.uploaded_by
+                )
 
-    #     except Backup.DoesNotExist:
-    #         return Response({"error": "Backup file not found"}, status=status.HTTP_404_NOT_FOUND)
-    
-    @action(methods=["post"], detail=False)
-    def restore(self, request):
-        backup_id = request.data.get("backup_id")
+                return Response(
+                    {"message": "File restored successfully", "file_id": restored_file.id},
+                    status=status.HTTP_201_CREATED
+                )
 
-        if not backup_id:
-            return Response({"error": "Backup ID is required"}, status=400)
-
-        try:
-            backup_instance = Backup.objects.get(id=backup_id)
-        except Backup.DoesNotExist:
-            return Response({"error": "Backup not found"}, status=404)
-
-        backup_path = os.path.join(settings.MEDIA_ROOT, backup_instance.file.name)
-
-        # Read and decrypt file
-        try:
-            with open(backup_path, 'rb') as f:
-                encrypted_data = f.read()
-
-            decrypted_data = decrypt_file(encrypted_data)
-        except Exception as e:
-            return Response({"error": f"Failed to decrypt file: {str(e)}"}, status=500)
-
-        # Create new file
-        content_file = ContentFile(decrypted_data, name=backup_instance.name)
-
-        restored_file = File.objects.create(
-            file=content_file,
-            name=backup_instance.name,
-            category=backup_instance.category,
-            file_type=backup_instance.file_type,
-            is_approved=backup_instance.is_approved,
-            uploaded_by=backup_instance.uploaded_by
-        )
-
-        serializer = FileSerializer(restored_file)
-        return Response(serializer.data, status=201)
+            except Backup.DoesNotExist:
+                return Response({"error": "Backup file not found"}, status=status.HTTP_404_NOT_FOUND)  
 
     # @action(detail=True, methods=['GET'], permission_classes=[IsOwnerOrAdmin])
     # def get_ocr_text(self, request, pk=None):
